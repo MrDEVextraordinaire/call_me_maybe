@@ -27,11 +27,12 @@ def greedy(
 
 		found_valid_token = False
 		for token_id in sorted_tokens:
-			token_str = model.decode([token_id]).lstrip()
+			token_str = model.decode([token_id])
 			if (is_valid(output, token_str)):
 				output = output + token_str
 				prompt_ids_copy.append(token_id)
 				found_valid_token = True
+				break
 
 		if not found_valid_token:
 			break
