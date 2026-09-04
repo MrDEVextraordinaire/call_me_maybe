@@ -107,9 +107,7 @@ def encode(model: Small_LLM_Model, text: str) -> list[int]:
     The SDK's encode() returns a 2-D tensor of shape [1, seq_len].
     We index [0] to unwrap the batch dimension before converting to a list.
     """
-    encoded_tensor = model.encode(text)
-    first_sequence = encoded_tensor[0]
-    token_ids = first_sequence.tolist()
+    token_ids: list[int] = model.encode(text)[0].tolist()
     return token_ids
 
 
@@ -118,8 +116,8 @@ def encode(model: Small_LLM_Model, text: str) -> list[int]:
 def greedy(
     model: Small_LLM_Model,
     prompt_ids: list[int],
-    is_valid: Callable[[str, str], bool],
-    is_done: Callable[[str], bool],
+    valid: Callable[[str, str], bool],
+    done: Callable[[str], bool],
     max_tokens: int = 64,
 ) -> str:
     """Generate tokens greedily, constrained to tokens that pass valid().
@@ -143,98 +141,36 @@ def greedy(
     Returns:
         The generated string (not including the prompt).
     """
+    token_ids = list(prompt_ids)
+    generated = ""
 
-    # ---------------------------------------------------------
-    # 1. INITIALIZATION
-    # ---------------------------------------------------------
-    # Make an independent copy of prompt_ids so appending new tokens
-    # during generation does not mutate the caller's original list.
-	#COPY
-	#INDEX = TOKEN = INDEX = TOKEN
-    tokens = list(prompt_ids)
-
-    # Accumulator string for the text generated so far.
-    output = ""
-
-    # ---------------------------------------------------------
-    # 2. AUTOREGRESSIVE GENERATION LOOP
-    # ---------------------------------------------------------
-    # Step-by-step token generation capped at `max_tokens` iterations.
     for _ in range(max_tokens):
-
-        # Check if the stopping condition is satisfied (e.g., exact match found).
-        generation_finished = is_done(output)
-        if generation_finished:
+        if done(generated):
             break
 
-        # -----------------------------------------------------
-        # 3. GET NEXT-TOKEN LOGITS (PROBABILITIES)
-        # -----------------------------------------------------
-        # Forward pass: retrieve unnormalized log-probabilities for every
-        # token in the model's vocabulary based on current sequence context.
-        logits = model.get_logits_from_input_ids(tokens)
+        logits = model.get_logits_from_input_ids(token_ids)
+        best_token_id = -1
+        best_logit = -math.inf
 
-        # Get the total vocabulary size and prepare an index sequence (0 to V-1).
-        total_vocab_size = len(logits)
-        all_token_indices = range(total_vocab_size)
+        for token_id, logit in enumerate(logits):
+            # Skip tokens that cannot beat the current best;
+            if logit <= best_logit:
+                continue
 
-        # Helper function acting as a sort key to extract the logit value
-        # corresponding to a specific token ID.
-        def get_logit_score(token_index: int) -> float:
-            score = logits[token_index]
-            return score
+            token_str = model.decode([token_id])
 
-        # -----------------------------------------------------
-        # 4. RANK CANDIDATES BY MODEL CONFIDENCE
-        # -----------------------------------------------------
-        # Sort vocabulary indices in descending order so we evaluate the
-        # model's most likely tokens first (greedy exploration).
-        sorted_tokens = sorted(
-            all_token_indices,
-            key=get_logit_score,
-            reverse=True,
-        )
+            if valid(generated, token_str):
+                best_token_id = token_id
+                best_logit = logit
 
-        # Flag to track whether any candidate passes the grammar constraint.
-        found_valid_token = False
-
-        # -----------------------------------------------------
-        # 5. CONSTRAINED SEARCH & SELECTION
-        # -----------------------------------------------------
-        # Iterate through candidate tokens from highest logit to lowest.
-        for token_id in sorted_tokens:
-            # Wrap token ID in a list for SDK decoding.
-            token_list = [token_id]
-
-            # Convert token ID back into human-readable text.
-            token_str = model.decode(token_list)
-
-            # Validate whether appending this token keeps the text compliant
-            # with allowed prefixes (e.g., valid function name prefixes).
-            token_is_valid = is_valid(output, token_str)
-
-            if token_is_valid:
-                # Append the validated token string to the accumulated output text.
-                output = output + token_str
-
-                # Append the token ID to the context so future forward passes
-                # condition on this newly selected token.
-                tokens.append(token_id)
-
-                # Mark as resolved and exit candidate search for this step.
-                found_valid_token = True
-                break
-
-        # If every possible token in the vocabulary violated the constraint,
-        # terminate generation early to prevent deadlock or infinite loops.
-        if not found_valid_token:
+        # No valid token found — stop generation.
+        if best_token_id == -1:
             break
 
-    # ---------------------------------------------------------
-    # 6. RETURN RESULT
-    # ---------------------------------------------------------
-    # Return the accumulated string generated during the constrained search.
-    return output
+        generated += model.decode([best_token_id])
+        token_ids.append(best_token_id)
+
+    return generated
 
 
 # ── Function-name selection ────────────────────────────────────────────────
@@ -268,29 +204,32 @@ def pick_fn(
         + f"\nRequest: {user_prompt}\nFunction name: "
     )
 
-def is_valid(current: str, token_str: str) -> bool:
-# lstrip handles a leading space the tokeniser may add to token 1.
-# Allow the token only if the candidate is still a prefix of some name.
+    def valid(current: str, token_str: str) -> bool:
+        # lstrip handles a leading space the tokeniser may add to token 1.
+        candidate = (current + token_str).lstrip()
+        # Allow the token only if the candidate is still a prefix of some name.
+        return any(name.startswith(candidate) for name in function_names)
 
-	combined = current + token_str
-	stripped_candidate = combined.lstrip()
+    def done(current: str) -> bool:
+        # Stop as soon as we have accumulated a complete, exact function name.
+        return current.strip() in function_names
 
-	for name in allowed_function_names:
-		starts_with_prefix = name.startswith(stripped_candidate)
-		if starts_with_prefix:
-			return True
+    raw_result = greedy(
+        model,
+        encode(model, selection_prompt),
+        valid,
+        done,
+        max_tokens=40,
+    )
+    result = raw_result.strip()
 
-	return False
+    # Find the first function name that matches the generated result.
+    for name in function_names:
+        if result.startswith(name):
+            return next(f for f in functions if f.name == name)
 
-def is_done(current: str) -> bool:
-        stripped_text = current.strip()
-
-        for name in allowed_function_names:
-            is_match = stripped_text == name
-            if is_match:
-                return True
-
-        return False
+    # Fallback: return the first function if nothing matched.
+    return functions[0]
 
 
 # ── Parameter extraction ───────────────────────────────────────────────────

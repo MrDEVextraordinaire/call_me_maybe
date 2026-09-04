@@ -6,30 +6,36 @@ from llm_sdk import Small_LLM_Model
 
 def greedy(    model: Small_LLM_Model,
     prompt_ids: list[int],
-    max_tokens: int = 64
+    is_valid: callable,
+	max_tokens: int = 67
 ) -> str:
 	prompt_ids_copy = prompt_ids.copy()
 	output = ""
-	for _ in range(3):
+	for _ in range(max_tokens):
 		logits = model.get_logits_from_input_ids(prompt_ids_copy)
 		all_token_indexes = range(len(logits))
 
- 
-	def index_to_logit_score(token_index: int) -> float:
-		score = logits[token_index]
-		return score
+		def index_to_logit_score(token_index: int) -> float:
+			score = logits[token_index]
+			return score
 
-	sorted_tokens = sorted(all_token_indexes, key=index_to_logit_score, reverse=True)
+		sorted_tokens = sorted(all_token_indexes, key=index_to_logit_score, reverse=True)
 
-	for token_id in sorted_tokens[:8]:
-		token_str = model.decode([token_id])
-		output = output + token_str
-	print(output)
+		found_valid_token = False
 
-	found_valid_token = False
+		for token_id in sorted_tokens[:10]:
+			token_str = model.decode([token_id])
+			print("!!!!tokenstr: ", token_str)
+			if (is_valid(output, token_str)):
+				output = output + token_str
+				prompt_ids_copy.append(token_id)
+				print("############ OUTPUT:", output)
+				found_valid_token = True
+				break
 
+		if not found_valid_token:
+			break
 
-	pass
 
 def my_encode(model: Small_LLM_Model, text: str) -> list[int]:
 	return model.encode(text)[0].tolist()
@@ -40,7 +46,7 @@ def allowed_fns(model, prompt, function_defs_data):
 
 	function_name_desc = [f"- {f.name}: {f.description}" for f in function_defs_data]
 	quick_function_list = "\n".join(function_name_desc)
-	print(quick_function_list)
+	print("{\nquick_function_list: ", quick_function_list,"\n}")
 
 	func_select_prompt = (
 		"Pick the function for this request."
@@ -49,18 +55,22 @@ def allowed_fns(model, prompt, function_defs_data):
 		+ f"\nRequest: {prompt}\nFunction name: "
 	)
 
-	print(func_select_prompt)
+	print("[\n!func_select_prompt:", func_select_prompt, "\n]")
 	fn_prompt_ids = my_encode(model, func_select_prompt)
 
 	def is_valid(output: str, token_str: str) -> bool:
-		combined = 
+		combined = (output + token_str).strip()
 
+		for name in allowed_function_names:
+			print(f"name:{name}, potential cmb:{combined},  and if false:{name.startswith(combined)}")
+			if (name.startswith(combined)):
+				return True
 
-	selected_name = greedy(model, fn_prompt_ids, max_tokens=42)
+	selected_name = greedy(model, fn_prompt_ids, is_valid, max_tokens=42)
 
 
 def process(model, prompt, function_defs_data):
-	function_name = allowed_fns(model, prompt, function_defs_data, )
+	function_name = allowed_fns(model, prompt, function_defs_data,)
 
 def main():
 
@@ -70,7 +80,7 @@ def main():
 
 	for prompt_data in prompts_data:
 		res = process(model, prompt_data.prompt, function_defs_data,)
-		print()
+		print("\n\nnext prompt:")
 
 
 
