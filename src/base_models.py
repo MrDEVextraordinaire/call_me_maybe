@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from typing import Any
 
 
 class PromptItem(BaseModel):
@@ -14,3 +15,8 @@ class FunctionDefinitionItem(BaseModel):
 	description: str
 	parameters: dict[str, Nested]
 
+class Result(BaseModel):
+
+    prompt: str
+    name: str
+    parameters: dict[str, Any]
