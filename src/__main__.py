@@ -4,6 +4,8 @@ from .load_llm import get_vocab
 from llm_sdk import Small_LLM_Model
 from .base_models import PromptItem, FunctionDefinitionItem, Result
 from typing import Any
+from pathlib import Path
+import json
 
 def greedy(
 	model: Small_LLM_Model,
@@ -56,20 +58,22 @@ def allowed_fns(model, prompt, function_defs_data):
 		+ quick_function_list
 		+ f"\nRequest: {prompt}\nFunction name: "
 	)
-	print(func_select_prompt)
+	print(f"Request: {prompt}")
 
 	fn_prompt_ids = my_encode(model, func_select_prompt)
+
 
 	def is_valid(output: str, token_str: str) -> bool:
 		combined = (output + token_str)
 		return any(name.startswith(combined) for name in allowed_function_names)
+
 
 	def is_done(output_progress: str):
 		return output_progress.strip() in allowed_function_names
 
 
 	result = greedy(model, fn_prompt_ids, is_valid, is_done,  max_tokens=42).strip()
-	print("result f name: ",result)
+	print("picked f name: ",result)
 
 	for name in allowed_function_names:
 		if result.startswith(name):
@@ -78,6 +82,7 @@ def allowed_fns(model, prompt, function_defs_data):
 					return function
 
 	return functions[0]
+
 
 def extract_param(
     model: Small_LLM_Model,
@@ -114,7 +119,7 @@ def extract_param(
             model,
             prompt_ids,
             number_valid,
-            lambda is_done: False,  # no early stop; rely on constraint
+            lambda is_done: False,
             max_tokens=20,
         )
 		try:
@@ -125,37 +130,49 @@ def extract_param(
 	raw_string = greedy(
 		model,
 		prompt_ids,
-		valid=lambda _current, _token_str: True,
-		done=lambda current: "\n" in current,
+		is_valid=lambda _current, _token_str: True,
+		is_done=lambda current: "\n" in current,
 		max_tokens=64,
 	)
 	return raw_string.split("\n")[0].strip().strip("\"'")
 
 
-
 def process(model, prompt, function_defs_data) -> Result:
 	function_name = allowed_fns(model, prompt, function_defs_data,)
 
-	print("param items:", function_name.parameters.items())
-
 	parameters: dict[str, Any] = {}
 	for param_name, param_info in function_name.parameters.items():
-		print(f"param_name: {param_name} param_info: {param_info} ")
+		print(f"param_name: {param_name} || param_info: {param_info} ")
 		parameters[param_name] = extract_param(
             model, prompt, param_name, param_info.type
         )
-		print("paraaaaaaaaaaaaaaaaaaaaam",parameters)
+		print("extracted params:",parameters)
+
+	return Result(
+        prompt=prompt,
+        name=function_name.name,
+        parameters=parameters,
+    )
 
 def main():
 
-	prompts_data, function_defs_data, output_path = parse_validate_json()
+	prompts_data, function_defs_data, output_string = parse_validate_json()
 
 	model = Small_LLM_Model()
 
+	results: list[dict[str, Any]] = []
 	for prompt_data in prompts_data:
-		res = process(model, prompt_data.prompt, function_defs_data,)
-		print("\n\nnext prompt:")
+		result = process(model, prompt_data.prompt, function_defs_data,)
+		print(f"  {prompt_data.prompt} -> {result.name}\n\n")
+		results.append(result.model_dump())
 
+	output_path = Path(output_string)
+	output_path.parent.mkdir(parents=True, exist_ok=True)
+
+	with output_path.open(mode='w', encoding="utf-8") as output_file:
+		json.dump(results, output_file, indent=2)
+	
+	print(f"Wrote {len(results)} result(s) to {output_path}")
 
 
 if __name__ == "__main__":
