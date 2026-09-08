@@ -1,14 +1,22 @@
 import argparse
 from .base_models import PromptItem, FunctionDefinitionItem
 import json
+from typing import Any
 
-def load_json(file_path_string: str):
-	try:
-		with open(file_path_string, "r") as f:
-			file_path_string = json.load(f)
-	except (OSError, json.JSONDecodeError) as e:
-		print(e)
-	return file_path_string
+
+def load_json(file_path_string: str) -> list[dict[Any, Any]]:
+    try:
+        with open(file_path_string, "r") as f:
+            data = json.load(f)
+
+        if not isinstance(data, list):
+            raise ValueError(f"Expected list, got {type(data).__name__}")
+
+        return data
+        
+    except (OSError, json.JSONDecodeError, ValueError) as e:
+        print(f"Error loading {file_path_string}: {e}")
+        return []
 
 
 def parse_validate_json() -> tuple[list[FunctionDefinitionItem], list[FunctionDefinitionItem], str]:

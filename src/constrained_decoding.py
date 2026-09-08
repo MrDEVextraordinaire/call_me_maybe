@@ -4,7 +4,7 @@ from llm_sdk import Small_LLM_Model
 from .base_models import FunctionDefinitionItem
 
 
-def _argmax(logits: list[float]) -> int:
+def token_id_w_biggest_logit(logits: list[float]) -> int:
 	"""Return the index of the maximum logit score."""
 	best_idx = 0
 	best_val = logits[0]
@@ -15,25 +15,39 @@ def _argmax(logits: list[float]) -> int:
 	return best_idx
 
 
-def build_system_prompt(functions: list[FunctionDefinitionItem]) -> str:
-	"""Construct the system prompt detailing available functions and extraction rules."""
-	lines = [
-		"System:",
-		"You are a function-calling assistant. Choose the single best function and extract arguments.",
-		"",
-		"Rules:",
-		"- Return ONLY one valid JSON object.",
-		"- When a parameter expects a regular expression, write valid Python regex syntax (e.g. \\d+ for digits, \\bword\\b for whole-word matches, [aeiou] for character sets).",
-		"- Use exact types: numbers without quotes, strings with quotes.",
-		"",
-		"Available functions:",
-	]
+def build_prompt(prompt: str, functions: list[FunctionDefinitionItem]) -> str:
+	"""Construct the prompt detailing available functions and user request."""
+	formatted_functions = []
 	for f in functions:
 		params_list = [f"{k}: {v.type}" for k, v in f.parameters.items()]
 		params_str = ", ".join(params_list)
-		lines.append(f"- {f.name}({params_str}): {f.description}")
-	lines.append("")
-	return "\n".join(lines)
+		formatted_functions.append(f"- {f.name}({params_str}): {f.description}")
+	funcs_text = "\n".join(formatted_functions)
+
+	lines = [
+		"<|im_start|>system\n",
+		"You are a function-calling assistant. Choose the single ",
+		"best function and extract arguments.\n\n",
+		"Rules:\n"
+		"- Return ONLY one valid JSON object.\n"
+		"- When a parameter expects a regular expression, write valid "
+		"Python regex syntax\n"
+		"  (e.g. \\d+ for digits, \\bword\\b for whole-word matches, "
+		"[aeiou] for character sets).\n"
+		"Available functions:\n"
+		f"{funcs_text}\n"
+		"<|im_end|>\n"
+		"<|im_start|>user\n"
+		f"{prompt}\n"
+		"<|im_end|>\n"
+		"<|im_start|>assistant\n",
+	]
+	return "".join(lines)
+
+
+def build_system_prompt(functions: list[FunctionDefinitionItem], prompt: str = "") -> str:
+	"""Construct prompt for backward compatibility."""
+	return build_prompt(prompt, functions)
 
 
 def generate_function_name(
@@ -63,24 +77,22 @@ def generate_function_name(
 				else:
 					is_complete = True
 
-		if is_complete: 
+		if is_complete:
 			allowed_tokens.add(quotation_id)
 
 
 		masked: list[float] = [-math.inf] * len(logits)
 		for tok_id in allowed_tokens:
 			masked[tok_id] = logits[tok_id]
-			print('tok_id: ', tok_id)
-			print('masked[tok_id]: ', masked[tok_id])
 
-		next_token_id = _argmax(masked)
+
+		next_token_id = token_id_w_biggest_logit(masked)
 		if next_token_id == quotation_id:
 			break
 
 		generated_tokens.append(next_token_id)
 		working_ids.append(next_token_id)
-
-	return model.decode(generated_tokens).strip()
+	return str(model.decode(generated_tokens).strip())
 
 
 def generate_boolean_value(
@@ -90,11 +102,11 @@ def generate_boolean_value(
 	"""Determine boolean value (true/false) by comparing logits for true and false tokens."""
 	logits = model.get_logits_from_input_ids(input_ids)
 
-	true_ids = [model.encode("true")[0].tolist()[-1], model.encode(" true")[0].tolist()[-1]]
-	false_ids = [model.encode("false")[0].tolist()[-1], model.encode(" false")[0].tolist()[-1]]
+	true_ids  = [model.encode(v)[0].tolist()[-1] for v in ("true", " true")]
+	false_ids = [model.encode(v)[0].tolist()[-1] for v in ("false", " false")]
 
-	true_score = max(logits[tid] for tid in true_ids)
-	false_score = max(logits[tid] for tid in false_ids)
+	true_score = max(float(logits[tid]) for tid in true_ids)
+	false_score = max(float(logits[tid]) for tid in false_ids)
 
 	return true_score > false_score
 
@@ -114,7 +126,6 @@ def generate_number_value(
 		allowed_ids.add(model.encode(char)[0].tolist()[-1])
 	for char in "},":
 		stop_ids.add(model.encode(char)[0].tolist()[-1])
-
 	allowed_tokens = allowed_ids | stop_ids
 
 	for _ in range(max_digits):
@@ -124,14 +135,14 @@ def generate_number_value(
 		for tok_id in allowed_tokens:
 			masked[tok_id] = logits[tok_id]
 
-		next_id = _argmax(masked)
+		next_id = token_id_w_biggest_logit(masked)
 		if next_id in stop_ids:
 			break
 
 		generated_tokens.append(next_id)
 		working_ids.append(next_id)
 
-	return model.decode(generated_tokens).strip()
+	return str(model.decode(generated_tokens).strip())
 
 
 def _would_repeat(tokens: list[int], next_id: int, min_period: int = 1, max_period: int = 6) -> bool:
@@ -160,7 +171,7 @@ def generate_string_value(
 	for _ in range(max_tokens):
 		logits = model.get_logits_from_input_ids(working_ids)
 
-		best_id = _argmax(logits)
+		best_id = token_id_w_biggest_logit(logits)
 		best_str = model.decode([best_id])
 
 		if best_id == close_quote_id and len(generated_tokens) > 0:
@@ -173,5 +184,5 @@ def generate_string_value(
 		generated_tokens.append(best_id)
 		working_ids.append(best_id)
 
-	decoded = model.decode(generated_tokens).strip()
+	decoded = str(model.decode(generated_tokens).strip())
 	return decoded.replace("\\\\", "\\")
