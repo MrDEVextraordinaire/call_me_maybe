@@ -1,9 +1,28 @@
-.venv/
+# Python artifacts
 __pycache__/
-*.pyc
-data/output/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environment
+.venv/
+venv/
+ENV/
+
+# Type checking and testing caches
 .mypy_cache/
 .pytest_cache/
-*.egg-info/
-dist/
-build/
+
+# Project output (per Chapter VIII: do not include output/ in repository)
+data/output/
+
+# IDE and OS files
+.DS_Store
+.vscode/
+.idea/
+
+# Evaluation and reference documents
+moulinette/
+req/
+requirements/
+*.html
