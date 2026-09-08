@@ -92,22 +92,32 @@ def main() -> None:
     prompts_data, function_defs_data, output_string = parse_validate_json()
 
     output_path = Path(output_string)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        print(f"Error creating output directory: {e}", file=sys.stderr)
+        return
 
     if not function_defs_data:
         print(
             "Warning: No valid function definitions loaded. Exiting.",
             file=sys.stderr,
         )
-        with output_path.open(mode="w", encoding="utf-8") as output_file:
-            json.dump([], output_file, indent=2)
+        try:
+            with output_path.open(mode="w", encoding="utf-8") as output_file:
+                json.dump([], output_file, indent=2)
+        except OSError as e:
+            print(f"Error writing to {output_path}: {e}", file=sys.stderr)
         print("[]", flush=True)
         return
 
     if not prompts_data:
         print("Warning: No prompts to process. Exiting.", file=sys.stderr)
-        with output_path.open(mode="w", encoding="utf-8") as output_file:
-            json.dump([], output_file, indent=2)
+        try:
+            with output_path.open(mode="w", encoding="utf-8") as output_file:
+                json.dump([], output_file, indent=2)
+        except OSError as e:
+            print(f"Error writing to {output_path}: {e}", file=sys.stderr)
         print("[]", flush=True)
         return
 
@@ -123,8 +133,11 @@ def main() -> None:
         print_result_entry(item, is_last=is_last)
     print("]", flush=True)
 
-    with output_path.open(mode="w", encoding="utf-8") as output_file:
-        json.dump(results, output_file, indent=2)
+    try:
+        with output_path.open(mode="w", encoding="utf-8") as output_file:
+            json.dump(results, output_file, indent=2)
+    except OSError as e:
+        print(f"Error writing to {output_path}: {e}", file=sys.stderr)
 
 
 if __name__ == "__main__":

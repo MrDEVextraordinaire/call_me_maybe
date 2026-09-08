@@ -5,6 +5,7 @@ description = "LLM SDK runner"
 requires-python = ">=3.10"
 dependencies = [
     "pydantic>=2.0",
+    "numpy>=1.24.0",
     "llm_sdk",
     "mypy",
     "flake8",
@@ -19,10 +20,16 @@ packages = ["src"]
 
 [tool.mypy]
 ignore_missing_imports = true
+mypy_path = "llm_sdk"
 
 [[tool.mypy.overrides]]
 module = "llm_sdk.*"
+ignore_errors = true
 warn_return_any = false
+
+[[tool.mypy.overrides]]
+module = "llm_sdk"
+ignore_errors = true
 
 [tool.uv.sources]
 llm_sdk = { path = "./llm_sdk", editable = true }

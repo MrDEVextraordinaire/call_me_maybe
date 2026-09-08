@@ -57,7 +57,8 @@ Small language models (such as the 0.6B parameter Qwen model used here) frequent
 Clone the repository and install all dependencies into a virtual environment using `uv`:
 
 ```bash
-cd callmemaybe_push
+git clone <repository_url>
+cd call_me_maybe
 uv sync
 ```
 
