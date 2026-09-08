@@ -1,10 +1,10 @@
 [project]
-name = "llm-sdk"
+name = "llm-app"
 version = "0.1.0"
-description = "LLM SDK for local model inference"
+description = "LLM SDK runner"
 requires-python = ">=3.10"
 dependencies = [
-    "pydantic>=2.13.5",
+    "pydantic>=2.0",
     "llm_sdk",
     "mypy",
     "flake8",
@@ -15,7 +15,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["llm_sdk"]
+packages = ["src"]
 
 [tool.mypy]
 ignore_missing_imports = true
@@ -23,3 +23,6 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 module = "llm_sdk.*"
 warn_return_any = false
+
+[tool.uv.sources]
+llm_sdk = { path = "./llm_sdk", editable = true }
